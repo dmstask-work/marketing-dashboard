@@ -110,18 +110,23 @@ export async function loadDashboardDataset(config = {}) {
     return generateDummyDataset();
   }
 
-  // Fetch from /api/dashboard (Served by Vite Middleware locally or Go Serverless on Vercel)
+  // Fetch from /api/dashboard (Served by Vite Middleware locally or Vercel Serverless Function)
   const endpoint = forceRefresh ? '/api/dashboard?refresh=true' : '/api/dashboard';
   const res = await fetch(endpoint);
+  const rawText = await res.text();
   let json = null;
   try {
-    json = await res.json();
+    json = JSON.parse(rawText);
   } catch (_) {
-    // Non-JSON error response
+    // Non-JSON response
   }
 
   if (!res.ok) {
-    const detail = json?.message ? ` — ${json.message}` : '';
+    const detail = json?.message
+      ? ` — ${json.message}`
+      : rawText
+      ? ` — ${rawText.slice(0, 140).replace(/\s+/g, ' ')}`
+      : '';
     throw new Error(`Gagal memuat API /api/dashboard (Status ${res.status})${detail}`);
   }
 
