@@ -35,7 +35,7 @@ var cache = &SheetCache{
 	payload: make(map[string][][]string),
 }
 
-// Handler serves /api/dashboard on Vercel Serverless using Service Account credentials from .env
+// Handler serves /api/dashboard on Vercel Serverless using Service Account credentials from Environment Variables
 func Handler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -46,17 +46,15 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	spreadsheetID := os.Getenv("SPREADSHEET_ID")
-	if spreadsheetID == "" {
-		spreadsheetID = os.Getenv("GOOGLE_SPREADSHEET_ID")
-	}
+	spreadsheetID := firstNonEmptyEnv("SPREADSHEET_ID", "GOOGLE_SPREADSHEET_ID")
 	forceRefresh := r.URL.Query().Get("refresh") == "true"
 
 	if spreadsheetID == "" {
+		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"mode":    "dummy",
-			"status":  "ok",
-			"message": "SPREADSHEET_ID belum diset di Environment Variables.",
+			"mode":    "error",
+			"status":  "error",
+			"message": "Environment Variable SPREADSHEET_ID belum diset di Vercel Project Settings.",
 		})
 		return
 	}
@@ -88,9 +86,9 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		financeSheet := getEnvOrDefault("FINANCE_SHEET", "finance")
-		closingSheet := getEnvOrDefault("WORKSHEET_NAME", "closing")
-		leadsSheet := getEnvOrDefault("LEADS_RAW_WORKSHEET", "leads")
+		financeSheet := firstNonEmptyEnvDefault("finance", "FINANCE_SHEET", "FINANCE_SHEET_NAME")
+		closingSheet := firstNonEmptyEnvDefault("closing", "WORKSHEET_NAME", "CLOSING_SHEET_NAME")
+		leadsSheet := firstNonEmptyEnvDefault("leads", "LEADS_RAW_WORKSHEET", "LEADS_SHEET_NAME")
 
 		sheetsData, err := fetchBatchSheets(spreadsheetID, token, financeSheet, closingSheet, leadsSheet)
 		if err != nil {
@@ -120,36 +118,85 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func getEnvOrDefault(key, def string) string {
-	v := strings.TrimSpace(os.Getenv(key))
+func firstNonEmptyEnv(keys ...string) string {
+	for _, k := range keys {
+		v := strings.TrimSpace(os.Getenv(k))
+		v = strings.Trim(v, `"'`)
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func firstNonEmptyEnvDefault(def string, keys ...string) string {
+	v := firstNonEmptyEnv(keys...)
 	if v == "" {
 		return def
 	}
 	return v
 }
 
+func decodeBase64Flexible(s string) ([]byte, error) {
+	// Remove any whitespace, newlines, or quotes introduced during copy-paste
+	cleaned := strings.TrimSpace(s)
+	cleaned = strings.Trim(cleaned, `"'`)
+	cleaned = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == ' ' || r == '\t' {
+			return -1
+		}
+		return r
+	}, cleaned)
+
+	encodings := []*base64.Encoding{
+		base64.StdEncoding,
+		base64.RawStdEncoding,
+		base64.URLEncoding,
+		base64.RawURLEncoding,
+	}
+	var lastErr error
+	for _, enc := range encodings {
+		decoded, err := enc.DecodeString(cleaned)
+		if err == nil && len(decoded) > 0 {
+			return decoded, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
 func loadServiceAccount() (*ServiceAccount, error) {
-	b64 := strings.TrimSpace(os.Getenv("SERVICE_ACCOUNT_JSON_B64"))
+	rawEnv := firstNonEmptyEnv("SERVICE_ACCOUNT_JSON_B64", "SERVICE_ACCOUNT_JSON", "GOOGLE_SERVICE_ACCOUNT_JSON")
 	var raw []byte
 	var err error
 
-	if b64 != "" && !strings.HasSuffix(b64, "...") {
-		raw, err = base64.StdEncoding.DecodeString(b64)
-		if err != nil {
-			return nil, err
+	if rawEnv != "" && !strings.HasSuffix(rawEnv, "...") {
+		if strings.HasPrefix(strings.TrimSpace(rawEnv), "{") {
+			// Raw JSON string pasted directly into Environment Variable
+			raw = []byte(rawEnv)
+		} else {
+			raw, err = decodeBase64Flexible(rawEnv)
+			if err != nil {
+				return nil, fmt.Errorf("SERVICE_ACCOUNT_JSON_B64 tidak valid (pastikan hasil Base64 utuh): %v", err)
+			}
 		}
 	} else {
-		saPath := getEnvOrDefault("SERVICE_ACCOUNT_JSON_PATH", "service_account.json")
+		saPath := firstNonEmptyEnvDefault("service_account.json", "SERVICE_ACCOUNT_JSON_PATH")
 		raw, err = os.ReadFile(saPath)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("SERVICE_ACCOUNT_JSON_B64 belum diset di Vercel Environment Variables (%v)", err)
 		}
 	}
 
 	var sa ServiceAccount
 	if err := json.Unmarshal(raw, &sa); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("format JSON Service Account tidak valid: %v", err)
 	}
+	if sa.ClientEmail == "" || sa.PrivateKey == "" {
+		return nil, fmt.Errorf("client_email atau private_key kosong di dalam Service Account JSON")
+	}
+	// Normalize escaped \n in private_key if present
+	sa.PrivateKey = strings.ReplaceAll(sa.PrivateKey, `\n`, "\n")
 	if sa.TokenURI == "" {
 		sa.TokenURI = "https://oauth2.googleapis.com/token"
 	}
@@ -177,13 +224,17 @@ func getAccessToken(sa *ServiceAccount) (string, error) {
 		return "", fmt.Errorf("invalid private key PEM")
 	}
 
-	parsedKey, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		return "", err
-	}
-	rsaKey, ok := parsedKey.(*rsa.PrivateKey)
-	if !ok {
-		return "", fmt.Errorf("not an RSA private key")
+	var rsaKey *rsa.PrivateKey
+	if parsedKey, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
+		var ok bool
+		rsaKey, ok = parsedKey.(*rsa.PrivateKey)
+		if !ok {
+			return "", fmt.Errorf("not an RSA private key")
+		}
+	} else if pkcs1Key, err1 := x509.ParsePKCS1PrivateKey(block.Bytes); err1 == nil {
+		rsaKey = pkcs1Key
+	} else {
+		return "", fmt.Errorf("failed to parse private key: %v", err)
 	}
 
 	hashed := sha256.Sum256([]byte(signingInput))

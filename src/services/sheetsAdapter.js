@@ -113,16 +113,23 @@ export async function loadDashboardDataset(config = {}) {
   // Fetch from /api/dashboard (Served by Vite Middleware locally or Go Serverless on Vercel)
   const endpoint = forceRefresh ? '/api/dashboard?refresh=true' : '/api/dashboard';
   const res = await fetch(endpoint);
-  if (!res.ok) {
-    throw new Error(`Gagal memuat API /api/dashboard (Status ${res.status})`);
+  let json = null;
+  try {
+    json = await res.json();
+  } catch (_) {
+    // Non-JSON error response
   }
 
-  const json = await res.json();
-  if (json.mode === 'google_sheets' && json.sheets) {
+  if (!res.ok) {
+    const detail = json?.message ? ` — ${json.message}` : '';
+    throw new Error(`Gagal memuat API /api/dashboard (Status ${res.status})${detail}`);
+  }
+
+  if (json && json.mode === 'google_sheets' && json.sheets) {
     return transformRealSheetsToDataset(json.sheets, json.lastUpdated);
   }
 
-  if (json.mode === 'error') {
+  if (json && json.mode === 'error') {
     throw new Error(json.message || 'Gagal mengambil data dari Google Sheets');
   }
 
