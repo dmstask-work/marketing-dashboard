@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   ResponsiveContainer,
   BarChart,
@@ -9,6 +9,9 @@ import {
   Tooltip,
   LabelList,
 } from 'recharts';
+import { Download } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import { getMonthShortName, getMonthFullName } from '../data/mockData';
 import {
   computeLeaderboardAnalytics,
@@ -20,6 +23,9 @@ export default function LeaderboardMitraDashboard({
   selectedMonth = 10,
   sessionMode = 'ALL',
 }) {
+  const leaderboardRef = useRef(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+
   const analytics = useMemo(
     () =>
       computeLeaderboardAnalytics(dataset, {
@@ -32,11 +38,63 @@ export default function LeaderboardMitraDashboard({
   const { summaryKpis, rankedTable, top5ByClient, top5BySesi } = analytics;
   const monthFull = getMonthFullName(selectedMonth);
 
+  const handleDownloadPdf = async () => {
+    if (!leaderboardRef.current || isDownloading) return;
+    setIsDownloading(true);
+    try {
+      const element = leaderboardRef.current;
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#F4F6F9',
+        logging: false,
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 10;
+      const contentWidth = pageWidth - margin * 2;
+      const imgHeight = (canvas.height * contentWidth) / canvas.width;
+
+      let heightLeft = imgHeight;
+      let position = margin;
+
+      pdf.addImage(imgData, 'PNG', margin, position, contentWidth, imgHeight);
+      heightLeft -= pageHeight - margin * 2;
+
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight + margin;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', margin, position, contentWidth, imgHeight);
+        heightLeft -= pageHeight - margin * 2;
+      }
+
+      pdf.save(`Leaderboard_Mitra_Ahli_${monthFull}_2026_${sessionMode}.pdf`);
+    } catch (err) {
+      console.error('Gagal mengunduh PDF:', err);
+      window.print();
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   return (
-    <div>
+    <div ref={leaderboardRef}>
       {/* SECTION 1: AT A GLANCE KPI & TOP 5 PSYCHOLOGISTS CHARTS */}
       <div className="mb-section-heading">
         <span>Ringkasan Sesi & Top 5 Mitra Ahli ({monthFull} 2026 - Mode: {sessionMode})</span>
+        <button
+          className="mb-btn-filter"
+          onClick={handleDownloadPdf}
+          disabled={isDownloading}
+          data-html2canvas-ignore="true"
+          title="Download Leaderboard Mitra Ahli sebagai PDF"
+        >
+          <Download size={14} />
+          <span>{isDownloading ? 'Mengunduh PDF...' : 'Download PDF'}</span>
+        </button>
       </div>
 
       {/* 2 Summary KPI Cards */}
