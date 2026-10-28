@@ -111,8 +111,17 @@ export async function loadDashboardDataset(config = {}) {
   }
 
   // Fetch from /api/dashboard (Served by Vite Middleware locally or Vercel Serverless Function)
-  const endpoint = forceRefresh ? '/api/dashboard?refresh=true' : '/api/dashboard';
-  const res = await fetch(endpoint);
+  const ts = Date.now();
+  const endpoint = forceRefresh
+    ? `/api/dashboard?refresh=true&_t=${ts}`
+    : `/api/dashboard?_t=${ts}`;
+  const res = await fetch(endpoint, {
+    cache: 'no-store',
+    headers: {
+      Pragma: 'no-cache',
+      'Cache-Control': 'no-cache',
+    },
+  });
   const rawText = await res.text();
   let json = null;
   try {

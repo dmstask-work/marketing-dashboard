@@ -47,7 +47,7 @@ function createServiceAccountJWT(sa) {
 
 async function fetchGoogleSheetsData(forceRefresh = false) {
   const now = Date.now();
-  if (!forceRefresh && cachedResponse && now - lastFetchedTime < 30000) {
+  if (!forceRefresh && cachedResponse && now - lastFetchedTime < 3000) {
     return cachedResponse;
   }
 
@@ -128,6 +128,10 @@ function googleSheetsApiPlugin() {
       server.middlewares.use('/api/dashboard', async (req, res) => {
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader(
+          'Cache-Control',
+          'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
+        );
         try {
           const urlObj = new URL(req.url, 'http://localhost');
           const force = urlObj.searchParams.get('refresh') === 'true';

@@ -22,7 +22,20 @@ import MarketingDashboard from './pages/MarketingDashboard';
 import BusinessPerformanceDashboard from './pages/BusinessPerformanceDashboard';
 import LeaderboardMitraDashboard from './pages/LeaderboardMitraDashboard';
 
+function getDefaultMtdRange() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return {
+    startDate: `${y}-${m}-01`,
+    endDate: `${y}-${m}-${d}`,
+    currentMonth: now.getMonth() + 1,
+  };
+}
+
 export default function App() {
+  const defaultPeriod = getDefaultMtdRange();
   const [activeTab, setActiveTab] = useState('marketing');
   const [dataset, setDataset] = useState(() => generateDummyDataset());
   const [dataSourceConfig, setDataSourceConfig] = useState({
@@ -32,14 +45,15 @@ export default function App() {
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [loadingSource, setLoadingSource] = useState(true);
   const [sourceError, setSourceError] = useState('');
+  const [hasCustomDateFilter, setHasCustomDateFilter] = useState(false);
 
   // Global Target Configuration (Defaults: All=320.000.000, Leads=15%, TA=180.000.000)
   const [targetConfig, setTargetConfig] = useState(DEFAULT_TARGET_CONFIG);
 
-  // Page 1: Marketing Dashboard Filters
+  // Page 1: Marketing Dashboard Filters (Default: Current Month MTD up to today / latest sheet date)
   const [marketingFilters, setMarketingFilters] = useState({
-    startDate: '2026-10-01',
-    endDate: '2026-10-25',
+    startDate: defaultPeriod.startDate,
+    endDate: defaultPeriod.endDate,
     serviceType: 'ALL',
     statusTerjual: 'ALL',
     salesName: 'ALL',
@@ -47,36 +61,90 @@ export default function App() {
   });
 
   // Page 2: Business Performance Filter
-  const [businessMonth, setBusinessMonth] = useState(9); // Default s/d Sep (9/2026)
+  const [businessMonth, setBusinessMonth] = useState(defaultPeriod.currentMonth);
 
   // Page 3: Leaderboard Mitra Ahli Filters
   const [leaderboardFilters, setLeaderboardFilters] = useState({
-    month: 10,
+    month: defaultPeriod.currentMonth,
     sessionMode: 'ALL',
   });
 
-  // Automatically load real Google Sheets dataset on initial mount
+  // Automatically load & poll real Google Sheets dataset in real-time (every 15s + on tab focus)
   useEffect(() => {
     let mounted = true;
-    async function initRealData() {
-      setLoadingSource(true);
+
+    async function syncRealData(isInitial = false) {
+      if (dataSourceConfig.mode !== 'api') return;
+      if (isInitial) setLoadingSource(true);
       try {
-        const realDataset = await loadDashboardDataset({ mode: 'api' });
-        if (mounted) {
-          setDataset(realDataset);
-          setDataSourceConfig({ mode: realDataset.mode === 'google_sheets' ? 'api' : 'dummy' });
+        const realDataset = await loadDashboardDataset({
+          mode: 'api',
+          forceRefresh: !isInitial,
+        });
+        if (!mounted) return;
+        setDataset(realDataset);
+
+        // If user hasn't manually overridden the date range, keep endDate synced with latest current-month data or today
+        if (!hasCustomDateFilter && realDataset.mode === 'google_sheets') {
+          const freshDefault = getDefaultMtdRange();
+          const curMonthPrefix = freshDefault.startDate.slice(0, 7);
+          let maxDateInMonth = freshDefault.endDate;
+
+          (realDataset.financeRows || []).forEach((r) => {
+            if (r.date && r.date.startsWith(curMonthPrefix) && r.date > maxDateInMonth) {
+              maxDateInMonth = r.date;
+            }
+          });
+          (realDataset.leadsRows || []).forEach((r) => {
+            if (r.date && r.date.startsWith(curMonthPrefix) && r.date > maxDateInMonth) {
+              maxDateInMonth = r.date;
+            }
+          });
+
+          setMarketingFilters((prev) => {
+            if (prev.startDate === freshDefault.startDate && prev.endDate === maxDateInMonth) {
+              return prev;
+            }
+            return {
+              ...prev,
+              startDate: freshDefault.startDate,
+              endDate: maxDateInMonth,
+            };
+          });
         }
       } catch (err) {
-        console.warn('Fallback to Dummy Engine:', err.message);
+        if (isInitial) {
+          console.warn('Fallback to Dummy Engine:', err.message);
+        }
       } finally {
-        if (mounted) setLoadingSource(false);
+        if (mounted && isInitial) setLoadingSource(false);
       }
     }
-    initRealData();
+
+    syncRealData(true);
+
+    const intervalId = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        syncRealData(false);
+      }
+    }, 15000);
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        syncRealData(false);
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
     return () => {
       mounted = false;
+      clearInterval(intervalId);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
     };
-  }, []);
+  }, [dataSourceConfig.mode, hasCustomDateFilter]);
 
   const handleApplyDataSource = async (newConfig) => {
     setLoadingSource(true);
@@ -124,7 +192,7 @@ export default function App() {
   let activeFilterCount = 0;
   if (marketingFilters.serviceType !== 'ALL') activeFilterCount++;
   if (marketingFilters.salesName !== 'ALL') activeFilterCount++;
-  if (marketingFilters.startDate !== '2026-10-01' || marketingFilters.endDate !== '2026-10-25') {
+  if (hasCustomDateFilter) {
     activeFilterCount++;
   }
   if (
@@ -282,6 +350,7 @@ export default function App() {
           activeTab={activeTab}
           marketingFilters={marketingFilters}
           setMarketingFilters={setMarketingFilters}
+          setHasCustomDateFilter={setHasCustomDateFilter}
           businessMonth={businessMonth}
           setBusinessMonth={setBusinessMonth}
           leaderboardFilters={leaderboardFilters}
@@ -316,6 +385,7 @@ function FilterAndTargetModal({
   activeTab,
   marketingFilters,
   setMarketingFilters,
+  setHasCustomDateFilter,
   businessMonth,
   setBusinessMonth,
   leaderboardFilters,
@@ -333,20 +403,26 @@ function FilterAndTargetModal({
   const [draftTarget, setDraftTarget] = useState(targetConfig);
 
   const handleResetDefault = () => {
+    const def = getDefaultMtdRange();
     setDraftMkt({
-      startDate: '2026-10-01',
-      endDate: '2026-10-25',
+      startDate: def.startDate,
+      endDate: def.endDate,
       serviceType: 'ALL',
       statusTerjual: 'ALL',
       salesName: 'ALL',
       trendGranularity: 'daily',
     });
-    setDraftBizMonth(9);
-    setDraftLb({ month: 10, sessionMode: 'ALL' });
+    setDraftBizMonth(def.currentMonth);
+    setDraftLb({ month: def.currentMonth, sessionMode: 'ALL' });
     setDraftTarget(DEFAULT_TARGET_CONFIG);
+    setHasCustomDateFilter(false);
   };
 
   const handleApply = () => {
+    const def = getDefaultMtdRange();
+    if (draftMkt.startDate !== def.startDate || draftMkt.endDate !== def.endDate) {
+      setHasCustomDateFilter(true);
+    }
     setMarketingFilters(draftMkt);
     setBusinessMonth(Number(draftBizMonth));
     setLeaderboardFilters(draftLb);
@@ -382,7 +458,6 @@ function FilterAndTargetModal({
                 type="date"
                 className="mb-form-input"
                 value={draftMkt.startDate}
-                min="2026-01-01"
                 max={draftMkt.endDate}
                 onChange={(e) =>
                   setDraftMkt((prev) => ({ ...prev, startDate: e.target.value }))
@@ -397,7 +472,6 @@ function FilterAndTargetModal({
                 className="mb-form-input"
                 value={draftMkt.endDate}
                 min={draftMkt.startDate}
-                max="2026-10-25"
                 onChange={(e) =>
                   setDraftMkt((prev) => ({ ...prev, endDate: e.target.value }))
                 }
@@ -483,7 +557,7 @@ function FilterAndTargetModal({
                 value={draftBizMonth}
                 onChange={(e) => setDraftBizMonth(Number(e.target.value))}
               >
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((m) => (
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
                   <option key={m} value={m}>
                     s/d Bulan {m}/2026 ({getMonthFullName(m)} 2026)
                   </option>
@@ -504,7 +578,7 @@ function FilterAndTargetModal({
                   setDraftLb((prev) => ({ ...prev, month: Number(e.target.value) }))
                 }
               >
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((m) => (
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
                   <option key={m} value={m}>
                     {getMonthFullName(m)} 2026
                   </option>

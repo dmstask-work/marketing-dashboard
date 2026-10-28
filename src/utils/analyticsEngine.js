@@ -589,10 +589,20 @@ function computeRealBusinessPerformanceAnalytics(dataset, selectedMonth = 9, tar
   };
 
   // Stacked Bar by Sales YTD (from finance sheet Nama Sales, using Ms prefix and excluding Dhea & Keke)
-  const activeMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt'].slice(
-    0,
-    selectedMonth
-  );
+  const activeMonths = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'Mei',
+    'Jun',
+    'Jul',
+    'Agu',
+    'Sep',
+    'Okt',
+    'Nov',
+    'Des',
+  ].slice(0, selectedMonth);
 
   const trackedSales = [
     { salesCode: 'Ms NUR', salesName: 'Mayang (Nur)', monthlyTarget: 25000000, annualTarget: 25000000 * 12 },

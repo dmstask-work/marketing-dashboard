@@ -82,6 +82,10 @@ export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader(
+    'Cache-Control',
+    'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
+  );
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -100,8 +104,7 @@ export default async function handler(req, res) {
     const forceRefresh = req.query?.refresh === 'true';
     const now = Date.now();
 
-    if (!forceRefresh && cachedPayload && now - lastFetchedTime < 30000) {
-      res.setHeader('Cache-Control', 's-maxage=30, stale-while-revalidate=60');
+    if (!forceRefresh && cachedPayload && now - lastFetchedTime < 3000) {
       return res.status(200).json(cachedPayload);
     }
 
@@ -161,7 +164,6 @@ export default async function handler(req, res) {
     };
     lastFetchedTime = Date.now();
 
-    res.setHeader('Cache-Control', 's-maxage=30, stale-while-revalidate=60');
     return res.status(200).json(cachedPayload);
   } catch (err) {
     console.error('[/api/dashboard Error]:', err);
