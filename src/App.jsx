@@ -569,7 +569,7 @@ function FilterAndTargetModal({
 
         {activeTab === 'leaderboard' && (
           <div className="mb-form-grid">
-            <div className="mb-form-field">
+            <div className="mb-form-field" style={{ gridColumn: 'span 2' }}>
               <label>Bulan Periode</label>
               <select
                 className="mb-form-select"
@@ -583,21 +583,6 @@ function FilterAndTargetModal({
                     {getMonthFullName(m)} 2026
                   </option>
                 ))}
-              </select>
-            </div>
-
-            <div className="mb-form-field">
-              <label>Mode Sesi (On / Off)</label>
-              <select
-                className="mb-form-select"
-                value={draftLb.sessionMode}
-                onChange={(e) =>
-                  setDraftLb((prev) => ({ ...prev, sessionMode: e.target.value }))
-                }
-              >
-                <option value="ALL">Semua Sesi (ON + OFF)</option>
-                <option value="ON">Sesi Online (ON)</option>
-                <option value="OFF">Sesi Offline (OFF)</option>
               </select>
             </div>
           </div>

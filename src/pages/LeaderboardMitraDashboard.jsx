@@ -71,7 +71,7 @@ export default function LeaderboardMitraDashboard({
         heightLeft -= pageHeight - margin * 2;
       }
 
-      pdf.save(`Leaderboard_Mitra_Ahli_${monthFull}_2026_${sessionMode}.pdf`);
+      pdf.save(`Leaderboard_Mitra_Ahli_${monthFull}_2026.pdf`);
     } catch (err) {
       console.error('Gagal mengunduh PDF:', err);
       window.print();
@@ -84,7 +84,7 @@ export default function LeaderboardMitraDashboard({
     <div ref={leaderboardRef}>
       {/* SECTION 1: AT A GLANCE KPI & TOP 5 PSYCHOLOGISTS CHARTS */}
       <div className="mb-section-heading">
-        <span>Ringkasan Sesi & Top 5 Mitra Ahli ({monthFull} 2026 - Mode: {sessionMode})</span>
+        <span>Ringkasan Sesi & Top 5 Mitra Ahli ({monthFull} 2026)</span>
         <button
           className="mb-btn-filter"
           onClick={handleDownloadPdf}
@@ -101,13 +101,13 @@ export default function LeaderboardMitraDashboard({
       <div className="grid-kpi-2" style={{ marginBottom: 14 }}>
         <div className="mb-card">
           <div className="mb-card-top">
-            <span className="mb-card-title">SESSION ON/OFF ({getMonthShortName(selectedMonth)} 2026)</span>
+            <span className="mb-card-title">SESI ({getMonthShortName(selectedMonth)} 2026)</span>
             <span className="mb-dots">...</span>
           </div>
           <div className="mb-kpi-center">
             <div className="mb-kpi-number">{summaryKpis.totalAllSessions}</div>
             <div className="mb-kpi-sub">
-              <span>Total Sesi Terjual ({sessionMode})</span>
+              <span>Total Sesi Terjual</span>
             </div>
           </div>
         </div>
@@ -179,11 +179,11 @@ export default function LeaderboardMitraDashboard({
           </div>
         </div>
 
-        {/* Chart 2: Top 5 Psychologists with the Most Session */}
+        {/* Chart 2: Top 5 Psychologists with the Most Sesi */}
         <div className="mb-card">
           <div className="mb-card-top">
             <div>
-              <div className="mb-card-title">Top 5 Psychologists with the Most Session - ({sessionMode})</div>
+              <div className="mb-card-title">Top 5 Psychologists with the Most Sesi - {monthFull}</div>
               <div className="mb-inline-legend">
                 <span className="mb-legend-item">
                   <span className="mb-legend-dot" style={{ background: CLAY_THEME_COLORS.coral }} />
@@ -251,9 +251,7 @@ export default function LeaderboardMitraDashboard({
                 <th style={{ width: 50 }}>Rank</th>
                 <th>Mitra Ahli</th>
                 <th className="num">Client</th>
-                <th className="num">Session Online (ON)</th>
-                <th className="num">Session Offline (OFF)</th>
-                <th className="num">Total Session (ON/OFF)</th>
+                <th className="num">Total Sesi</th>
               </tr>
             </thead>
             <tbody>
@@ -262,8 +260,6 @@ export default function LeaderboardMitraDashboard({
                   <td style={{ color: '#74838F', fontWeight: 600 }}>{row.rank}.</td>
                   <td className="link-col">{row.mitraName}</td>
                   <td className="num">{row.totalClient}</td>
-                  <td className="num">{row.sesiOnline}</td>
-                  <td className="num">{row.sesiOffline}</td>
                   <td className="num" style={{ fontWeight: 700 }}>
                     {row.totalSesi}
                   </td>
