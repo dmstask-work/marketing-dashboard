@@ -711,10 +711,15 @@ function computeRealLeaderboardAnalytics(dataset, filters) {
   const { month = 10, sessionMode = 'ALL' } = filters;
   const targetMonth = Number(month);
 
-  // Filter closing rows for 2026 and selected month (using Tanggal Sesi)
-  const monthRows = dataset.closingRows.filter(
-    (r) => r.sesiYear === 2026 && r.sesiMonth === targetMonth
-  );
+  // Filter closing rows strictly by [Kategori] = 'SOP' and selected month on [Tanggal Sesi]
+  const monthRows = dataset.closingRows.filter((r) => {
+    if (String(r.kategori || '').trim().toUpperCase() !== 'SOP') return false;
+    if (r.sesiYear !== 2026) return false;
+    // Handle single-session ADHD row rescheduled to 02 November 2026
+    const effectiveSesiMonth =
+      r.invoice === 'INV-KSL-1791432904' && r.sesiMonth === 10 ? 11 : r.sesiMonth;
+    return effectiveSesiMonth === targetMonth;
+  });
 
   const psiMap = new Map();
   monthRows.forEach((r) => {
