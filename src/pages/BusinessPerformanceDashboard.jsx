@@ -63,12 +63,12 @@ export default function BusinessPerformanceDashboard({
   ];
 
   const sopMtdBars = [
-    { name: 'SOP Revenue', value: sopMetrics.mtdActual, fill: CLAY_THEME_COLORS.blue },
+    { name: 'BMI Revenue', value: sopMetrics.mtdActual, fill: CLAY_THEME_COLORS.blue },
     { name: 'Target All', value: sopMetrics.mtdTarget, fill: CLAY_THEME_COLORS.green },
   ];
 
   const sopYtdBars = [
-    { name: 'SOP Revenue', value: sopMetrics.ytdActual, fill: CLAY_THEME_COLORS.coral },
+    { name: 'BMI Revenue', value: sopMetrics.ytdActual, fill: CLAY_THEME_COLORS.coral },
     { name: 'Target', value: sopMetrics.ytdTarget, fill: CLAY_THEME_COLORS.green },
   ];
 
@@ -193,17 +193,17 @@ export default function BusinessPerformanceDashboard({
         </div>
       </div>
 
-      {/* SECTION 2: PERFORMANCE - SOP (ALL) */}
+      {/* SECTION 2: PERFORMANCE - BMI (ALL) */}
       <div className="mb-section-heading">
-        <span>Performance - SOP</span>
+        <span>Performance - BMI</span>
       </div>
 
       <div className="grid-kpi-3">
-        {/* MTD vs Target Bulanan (SOP) */}
+        {/* MTD vs Target Bulanan (BMI) */}
         <div className="mb-card">
           <div className="mb-card-top">
             <div>
-              <div className="mb-card-title">MTD vs Target Bulanan ({selectedMonth}/2026) - SOP</div>
+              <div className="mb-card-title">MTD vs Target Bulanan ({selectedMonth}/2026) - BMI</div>
               <div className="mb-inline-legend">
                 <span>Aktual: {formatNumber(sopMetrics.mtdActual)} ({formatPct(sopMetrics.mtdPct, false, 1)})</span>
               </div>
@@ -228,11 +228,11 @@ export default function BusinessPerformanceDashboard({
           </div>
         </div>
 
-        {/* YTD vs Target Tahunan (SOP) */}
+        {/* YTD vs Target Tahunan (BMI) */}
         <div className="mb-card">
           <div className="mb-card-top">
             <div>
-              <div className="mb-card-title">YTD vs Target Tahunan (s.d {selectedMonth}/2026) - SOP</div>
+              <div className="mb-card-title">YTD vs Target Tahunan (s.d {selectedMonth}/2026) - BMI</div>
               <div className="mb-inline-legend">
                 <span>Aktual: {formatNumber(sopMetrics.ytdActual)} ({formatPct(sopMetrics.ytdPct, false, 1)})</span>
               </div>
@@ -257,15 +257,15 @@ export default function BusinessPerformanceDashboard({
           </div>
         </div>
 
-        {/* Tren Revenue SOP */}
+        {/* Tren Revenue BMI */}
         <div className="mb-card">
           <div className="mb-card-top">
             <div>
-              <div className="mb-card-title">Tren Revenue Bulanan - SOP</div>
+              <div className="mb-card-title">Tren Revenue Bulanan - BMI</div>
               <div className="mb-inline-legend">
                 <span className="mb-legend-item">
                   <span className="mb-legend-dot" style={{ background: CLAY_THEME_COLORS.blue }} />
-                  SOP Revenue
+                  BMI Revenue
                 </span>
                 <span className="mb-legend-item">
                   <span className="mb-legend-dot" style={{ background: CLAY_THEME_COLORS.green }} />
@@ -282,8 +282,8 @@ export default function BusinessPerformanceDashboard({
                 <XAxis dataKey="monthLabel" axisLine={{ stroke: '#E2E8F0' }} tickLine={false} tick={{ fontSize: 10, fill: '#74838F' }} />
                 <YAxis axisLine={false} tickLine={false} tickFormatter={(v) => formatIDR(v, true)} tick={{ fontSize: 10, fill: '#74838F' }} />
                 <Tooltip formatter={(v) => formatIDR(v)} contentStyle={{ borderRadius: '6px', border: '1px solid #E2E8F0', fontSize: '12px' }} />
-                <Area type="monotone" dataKey="revSOP" name="Revenue SOP" stroke={CLAY_THEME_COLORS.blue} strokeWidth={2.2} fill="#EEF6FC" />
-                <Line type="monotone" dataKey="avgSOP" name="Average SOP" stroke={CLAY_THEME_COLORS.green} strokeWidth={1.8} strokeDasharray="4 4" dot={false} />
+                <Area type="monotone" dataKey="revSOP" name="Revenue BMI" stroke={CLAY_THEME_COLORS.blue} strokeWidth={2.2} fill="#EEF6FC" />
+                <Line type="monotone" dataKey="avgSOP" name="Average BMI" stroke={CLAY_THEME_COLORS.green} strokeWidth={1.8} strokeDasharray="4 4" dot={false} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>

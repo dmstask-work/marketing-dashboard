@@ -15,9 +15,15 @@ import {
   SERVICE_TYPES,
   SALES_TEAM,
   getMonthFullName,
+  getMonthShortName,
 } from './data/mockData';
 import { loadDashboardDataset } from './services/sheetsAdapter';
-import { DEFAULT_TARGET_CONFIG } from './utils/analyticsEngine';
+import {
+  DEFAULT_TARGET_CONFIG,
+  DEFAULT_MONTHLY_TARGETS_ALL,
+  DEFAULT_MONTHLY_TARGETS_TA,
+  formatIDR,
+} from './utils/analyticsEngine';
 import MarketingDashboard from './pages/MarketingDashboard';
 import BusinessPerformanceDashboard from './pages/BusinessPerformanceDashboard';
 import LeaderboardMitraDashboard from './pages/LeaderboardMitraDashboard';
@@ -195,10 +201,19 @@ export default function App() {
   if (hasCustomDateFilter) {
     activeFilterCount++;
   }
+  const hasCustomMonthlyAll =
+    Array.isArray(targetConfig.monthlyTargetsAll) &&
+    targetConfig.monthlyTargetsAll.some((v, idx) => Number(v) !== DEFAULT_MONTHLY_TARGETS_ALL[idx]);
+  const hasCustomMonthlyTA =
+    Array.isArray(targetConfig.monthlyTargetsTA) &&
+    targetConfig.monthlyTargetsTA.some((v, idx) => Number(v) !== DEFAULT_MONTHLY_TARGETS_TA[idx]);
+
   if (
     targetConfig.targetBulananAll !== DEFAULT_TARGET_CONFIG.targetBulananAll ||
     targetConfig.targetPersentaseLeads !== DEFAULT_TARGET_CONFIG.targetPersentaseLeads ||
-    targetConfig.targetTA !== DEFAULT_TARGET_CONFIG.targetTA
+    targetConfig.targetTA !== DEFAULT_TARGET_CONFIG.targetTA ||
+    hasCustomMonthlyAll ||
+    hasCustomMonthlyTA
   ) {
     activeFilterCount++;
   }
@@ -400,7 +415,18 @@ function FilterAndTargetModal({
   const [draftMkt, setDraftMkt] = useState(marketingFilters);
   const [draftBizMonth, setDraftBizMonth] = useState(businessMonth);
   const [draftLb, setDraftLb] = useState(leaderboardFilters);
-  const [draftTarget, setDraftTarget] = useState(targetConfig);
+  const [draftTarget, setDraftTarget] = useState(() => ({
+    ...targetConfig,
+    monthlyTargetsAll:
+      Array.isArray(targetConfig.monthlyTargetsAll) && targetConfig.monthlyTargetsAll.length === 12
+        ? [...targetConfig.monthlyTargetsAll]
+        : Array(12).fill(Number(targetConfig.targetBulananAll) || 320000000),
+    monthlyTargetsTA:
+      Array.isArray(targetConfig.monthlyTargetsTA) && targetConfig.monthlyTargetsTA.length === 12
+        ? [...targetConfig.monthlyTargetsTA]
+        : Array(12).fill(Number(targetConfig.targetTA) || 180000000),
+  }));
+  const [monthlyTargetSegment, setMonthlyTargetSegment] = useState('BMI'); // 'BMI' | 'TA'
 
   const handleResetDefault = () => {
     const def = getDefaultMtdRange();
@@ -414,7 +440,11 @@ function FilterAndTargetModal({
     });
     setDraftBizMonth(def.currentMonth);
     setDraftLb({ month: def.currentMonth, sessionMode: 'ALL' });
-    setDraftTarget(DEFAULT_TARGET_CONFIG);
+    setDraftTarget({
+      ...DEFAULT_TARGET_CONFIG,
+      monthlyTargetsAll: [...DEFAULT_MONTHLY_TARGETS_ALL],
+      monthlyTargetsTA: [...DEFAULT_MONTHLY_TARGETS_TA],
+    });
     setHasCustomDateFilter(false);
   };
 
@@ -423,16 +453,65 @@ function FilterAndTargetModal({
     if (draftMkt.startDate !== def.startDate || draftMkt.endDate !== def.endDate) {
       setHasCustomDateFilter(true);
     }
+    const baseAll = Number(draftTarget.targetBulananAll) || 320000000;
+    const baseTA = Number(draftTarget.targetTA) || 180000000;
+    const normalizedMonthlyAll = Array.isArray(draftTarget.monthlyTargetsAll)
+      ? draftTarget.monthlyTargetsAll.map((v) => Number(v) || baseAll)
+      : Array(12).fill(baseAll);
+    const normalizedMonthlyTA = Array.isArray(draftTarget.monthlyTargetsTA)
+      ? draftTarget.monthlyTargetsTA.map((v) => Number(v) || baseTA)
+      : Array(12).fill(baseTA);
+
     setMarketingFilters(draftMkt);
     setBusinessMonth(Number(draftBizMonth));
     setLeaderboardFilters(draftLb);
     setTargetConfig({
-      targetBulananAll: Number(draftTarget.targetBulananAll) || 320000000,
+      targetBulananAll: baseAll,
       targetPersentaseLeads: Number(draftTarget.targetPersentaseLeads) || 15,
-      targetTA: Number(draftTarget.targetTA) || 180000000,
+      targetTA: baseTA,
+      monthlyTargetsAll: normalizedMonthlyAll,
+      monthlyTargetsTA: normalizedMonthlyTA,
     });
     onClose();
   };
+
+  const handleMonthTargetChange = (segment, monthIdx, rawValue) => {
+    const key = segment === 'BMI' ? 'monthlyTargetsAll' : 'monthlyTargetsTA';
+    setDraftTarget((prev) => {
+      const nextArr = [...(prev[key] || [])];
+      nextArr[monthIdx] = rawValue;
+      return {
+        ...prev,
+        [key]: nextArr,
+      };
+    });
+  };
+
+  const handleApplyBaseToAll12Months = (segment) => {
+    if (segment === 'BMI') {
+      const val = Number(draftTarget.targetBulananAll) || 320000000;
+      setDraftTarget((prev) => ({
+        ...prev,
+        monthlyTargetsAll: Array(12).fill(val),
+      }));
+    } else {
+      const val = Number(draftTarget.targetTA) || 180000000;
+      setDraftTarget((prev) => ({
+        ...prev,
+        monthlyTargetsTA: Array(12).fill(val),
+      }));
+    }
+  };
+
+  const activeMonthlyList =
+    monthlyTargetSegment === 'BMI'
+      ? draftTarget.monthlyTargetsAll || DEFAULT_MONTHLY_TARGETS_ALL
+      : draftTarget.monthlyTargetsTA || DEFAULT_MONTHLY_TARGETS_TA;
+
+  const totalAnnualTargetDraft = activeMonthlyList.reduce(
+    (sum, val) => sum + (Number(val) || 0),
+    0
+  );
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -590,15 +669,28 @@ function FilterAndTargetModal({
 
         <div className="mb-form-grid" style={{ marginTop: 12 }}>
           <div className="mb-form-field">
-            <label>Target Bulanan All (IDR)</label>
+            <label>Target Bulanan BMI / All (IDR)</label>
             <input
               type="number"
               className="mb-form-input"
               step="5000000"
               value={draftTarget.targetBulananAll}
-              onChange={(e) =>
-                setDraftTarget((prev) => ({ ...prev, targetBulananAll: e.target.value }))
-              }
+              onChange={(e) => {
+                const newVal = e.target.value;
+                setDraftTarget((prev) => {
+                  const prevBase = Number(prev.targetBulananAll) || 320000000;
+                  const allMatchPrev =
+                    Array.isArray(prev.monthlyTargetsAll) &&
+                    prev.monthlyTargetsAll.every((m) => Number(m) === prevBase);
+                  return {
+                    ...prev,
+                    targetBulananAll: newVal,
+                    monthlyTargetsAll: allMatchPrev
+                      ? Array(12).fill(Number(newVal) || 0)
+                      : prev.monthlyTargetsAll,
+                  };
+                });
+              }}
             />
           </div>
 
@@ -609,9 +701,22 @@ function FilterAndTargetModal({
               className="mb-form-input"
               step="5000000"
               value={draftTarget.targetTA}
-              onChange={(e) =>
-                setDraftTarget((prev) => ({ ...prev, targetTA: e.target.value }))
-              }
+              onChange={(e) => {
+                const newVal = e.target.value;
+                setDraftTarget((prev) => {
+                  const prevBase = Number(prev.targetTA) || 180000000;
+                  const allMatchPrev =
+                    Array.isArray(prev.monthlyTargetsTA) &&
+                    prev.monthlyTargetsTA.every((m) => Number(m) === prevBase);
+                  return {
+                    ...prev,
+                    targetTA: newVal,
+                    monthlyTargetsTA: allMatchPrev
+                      ? Array(12).fill(Number(newVal) || 0)
+                      : prev.monthlyTargetsTA,
+                  };
+                });
+              }}
             />
           </div>
 
@@ -630,6 +735,92 @@ function FilterAndTargetModal({
                 }))
               }
             />
+          </div>
+        </div>
+
+        {/* KONFIGURASI TARGET TAHUNAN PER 12 BULAN (JAN - DES) */}
+        <div
+          style={{
+            marginTop: 14,
+            paddingTop: 12,
+            borderTop: '1px solid #F1F5F9',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 8,
+              marginBottom: 10,
+            }}
+          >
+            <div>
+              <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#1E293B' }}>
+                Target Tahunan per 12 Bulan (YTD vs Target Tahunan)
+              </div>
+              <div style={{ fontSize: '0.71rem', color: '#64748B' }}>
+                Total Target Tahunan ({monthlyTargetSegment}):{' '}
+                <strong style={{ color: '#2E353B' }}>
+                  {formatIDR(totalAnnualTargetDraft)} ({formatIDR(totalAnnualTargetDraft, true)})
+                </strong>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div className="mini-toggle-group">
+                <button
+                  type="button"
+                  className={`mini-toggle-btn ${monthlyTargetSegment === 'BMI' ? 'active' : ''}`}
+                  onClick={() => setMonthlyTargetSegment('BMI')}
+                >
+                  Target BMI (12 Bln)
+                </button>
+                <button
+                  type="button"
+                  className={`mini-toggle-btn ${monthlyTargetSegment === 'TA' ? 'active' : ''}`}
+                  onClick={() => setMonthlyTargetSegment('TA')}
+                >
+                  Target TA (12 Bln)
+                </button>
+              </div>
+              <button
+                type="button"
+                className="mb-filter-reset"
+                style={{ height: 26, padding: '0 8px', fontSize: '0.68rem' }}
+                onClick={() => handleApplyBaseToAll12Months(monthlyTargetSegment)}
+                title="Samakan seluruh 12 bulan dengan nilai Target Bulanan di atas"
+              >
+                Samakan 12 Bulan
+              </button>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+              gap: 8,
+            }}
+          >
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m, idx) => (
+              <div key={m} className="mb-form-field">
+                <label style={{ fontSize: '0.7rem' }}>
+                  {m}. {getMonthShortName(m)} ({monthlyTargetSegment})
+                </label>
+                <input
+                  type="number"
+                  className="mb-form-input"
+                  style={{ height: 32, fontSize: '0.75rem', padding: '0 8px' }}
+                  step="5000000"
+                  value={activeMonthlyList[idx] ?? 0}
+                  onChange={(e) =>
+                    handleMonthTargetChange(monthlyTargetSegment, idx, e.target.value)
+                  }
+                />
+              </div>
+            ))}
           </div>
         </div>
 

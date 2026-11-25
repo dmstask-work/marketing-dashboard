@@ -595,14 +595,16 @@ body {
 }
 
 .modal-mb {
-  max-width: 620px;
+  max-width: 660px;
   width: 100%;
+  max-height: 90vh;
   background: #FFFFFF;
   border: 1px solid var(--mb-border);
   border-radius: 12px;
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.14);
   padding: 24px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .mb-form-section-title {

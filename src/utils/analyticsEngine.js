@@ -44,10 +44,15 @@ export const HARMONIOUS_SERIES_PALETTE = [
   '#CBD5E1',
 ];
 
+export const DEFAULT_MONTHLY_TARGETS_ALL = Array(12).fill(320000000);
+export const DEFAULT_MONTHLY_TARGETS_TA = Array(12).fill(180000000);
+
 export const DEFAULT_TARGET_CONFIG = {
   targetBulananAll: 320000000,
   targetPersentaseLeads: 15,
   targetTA: 180000000,
+  monthlyTargetsAll: [...DEFAULT_MONTHLY_TARGETS_ALL],
+  monthlyTargetsTA: [...DEFAULT_MONTHLY_TARGETS_TA],
 };
 
 export function formatIDR(amount, compact = false) {
@@ -493,10 +498,24 @@ function computeRealBusinessPerformanceAnalytics(dataset, selectedMonth = 9, tar
   const customTargetAll = Number(targetConfig.targetBulananAll) || 320000000;
   const customTargetTA = Number(targetConfig.targetTA) || 180000000;
 
+  const monthlyTargetsAll =
+    Array.isArray(targetConfig.monthlyTargetsAll) && targetConfig.monthlyTargetsAll.length === 12
+      ? targetConfig.monthlyTargetsAll.map((v) => Number(v) || 0)
+      : Array(12).fill(customTargetAll);
+
+  const monthlyTargetsTA =
+    Array.isArray(targetConfig.monthlyTargetsTA) && targetConfig.monthlyTargetsTA.length === 12
+      ? targetConfig.monthlyTargetsTA.map((v) => Number(v) || 0)
+      : Array(12).fill(customTargetTA);
+
+  const selectedIdx = Math.max(0, Math.min(11, Number(selectedMonth) - 1));
+  const selectedMonthTargetAll = monthlyTargetsAll[selectedIdx] || customTargetAll;
+  const selectedMonthTargetTA = monthlyTargetsTA[selectedIdx] || customTargetTA;
+
   const isRowTA = (r) =>
     r.detailProduk === 'TA' || (r.detailProduk === 'MP' && r.kategoriSegment === 'TA');
 
-  // Compute monthly SOP (ALL rows in finance) and TA for 2026
+  // Compute monthly BMI/SOP (ALL rows in finance) and TA for 2026
   const monthlySopTaSeries = [];
   for (let m = 1; m <= selectedMonth; m++) {
     const mRows = financeRows.filter((r) => r.year === 2026 && r.month === m);
@@ -508,8 +527,8 @@ function computeRealBusinessPerformanceAnalytics(dataset, selectedMonth = 9, tar
       monthLabel: getMonthShortName(m),
       revSOP,
       revTA,
-      targetSOP: customTargetAll,
-      targetTA: customTargetTA,
+      targetSOP: monthlyTargetsAll[m - 1] || customTargetAll,
+      targetTA: monthlyTargetsTA[m - 1] || customTargetTA,
     });
   }
 
@@ -521,7 +540,7 @@ function computeRealBusinessPerformanceAnalytics(dataset, selectedMonth = 9, tar
   const sopPeriodSum = monthlySopTaSeries.reduce((s, m) => s + m.revSOP, 0);
   const taPeriodSum = monthlySopTaSeries.reduce((s, m) => s + m.revTA, 0);
 
-  // Full 2026 YTD across all Detail Produk for SOP (Rp 2.993.572.587) and TA only for TA (Rp 1.568.299.250)
+  // Full 2026 YTD across all Detail Produk for BMI/SOP (Rp 2.993.572.587) and TA only for TA (Rp 1.568.299.250)
   const all2026Rows = financeRows.filter((r) => r.year === 2026);
   const sopYtdActual = all2026Rows.reduce((s, r) => s + r.nominal, 0);
   const taYtdActual = all2026Rows.filter(isRowTA).reduce((s, r) => s + r.nominal, 0);
@@ -565,13 +584,13 @@ function computeRealBusinessPerformanceAnalytics(dataset, selectedMonth = 9, tar
           }))
       : MULTI_YEAR_ANNUAL;
 
-  const sopYtdTarget = customTargetAll * 12;
-  const taYtdTarget = customTargetTA * 12;
+  const sopYtdTarget = monthlyTargetsAll.reduce((sum, val) => sum + val, 0);
+  const taYtdTarget = monthlyTargetsTA.reduce((sum, val) => sum + val, 0);
 
   const sopMetrics = {
     mtdActual: currentMonthSeries.revSOP,
-    mtdTarget: customTargetAll,
-    mtdPct: customTargetAll > 0 ? (currentMonthSeries.revSOP / customTargetAll) * 100 : 0,
+    mtdTarget: selectedMonthTargetAll,
+    mtdPct: selectedMonthTargetAll > 0 ? (currentMonthSeries.revSOP / selectedMonthTargetAll) * 100 : 0,
     ytdActual: sopYtdActual,
     ytdTarget: sopYtdTarget,
     ytdPct: sopYtdTarget > 0 ? (sopYtdActual / sopYtdTarget) * 100 : 0,
@@ -580,8 +599,8 @@ function computeRealBusinessPerformanceAnalytics(dataset, selectedMonth = 9, tar
 
   const taMetrics = {
     mtdActual: currentMonthSeries.revTA,
-    mtdTarget: customTargetTA,
-    mtdPct: customTargetTA > 0 ? (currentMonthSeries.revTA / customTargetTA) * 100 : 0,
+    mtdTarget: selectedMonthTargetTA,
+    mtdPct: selectedMonthTargetTA > 0 ? (currentMonthSeries.revTA / selectedMonthTargetTA) * 100 : 0,
     ytdActual: taYtdActual,
     ytdTarget: taYtdTarget,
     ytdPct: taYtdTarget > 0 ? (taYtdActual / taYtdTarget) * 100 : 0,
@@ -1075,6 +1094,20 @@ function computeDummyBusinessPerformanceAnalytics(dataset, selectedMonth = 9, ta
   const customTargetAll = Number(targetConfig.targetBulananAll) || 320000000;
   const customTargetTA = Number(targetConfig.targetTA) || 180000000;
 
+  const monthlyTargetsAll =
+    Array.isArray(targetConfig.monthlyTargetsAll) && targetConfig.monthlyTargetsAll.length === 12
+      ? targetConfig.monthlyTargetsAll.map((v) => Number(v) || 0)
+      : Array(12).fill(customTargetAll);
+
+  const monthlyTargetsTA =
+    Array.isArray(targetConfig.monthlyTargetsTA) && targetConfig.monthlyTargetsTA.length === 12
+      ? targetConfig.monthlyTargetsTA.map((v) => Number(v) || 0)
+      : Array(12).fill(customTargetTA);
+
+  const selectedIdx = Math.max(0, Math.min(11, Number(selectedMonth) - 1));
+  const selectedMonthTargetAll = monthlyTargetsAll[selectedIdx] || customTargetAll;
+  const selectedMonthTargetTA = monthlyTargetsTA[selectedIdx] || customTargetTA;
+
   const multiYearAnnual = MULTI_YEAR_ANNUAL;
   const ytd2025 = targets.ytd2025JanSep;
   const ytd2026 = targets.ytd2026JanSep;
@@ -1102,13 +1135,13 @@ function computeDummyBusinessPerformanceAnalytics(dataset, selectedMonth = 9, ta
         )
       : 0;
 
-  const sopYtdTarget = customTargetAll * 12;
-  const taYtdTarget = customTargetTA * 12;
+  const sopYtdTarget = monthlyTargetsAll.reduce((sum, val) => sum + val, 0);
+  const taYtdTarget = monthlyTargetsTA.reduce((sum, val) => sum + val, 0);
 
   const sopMetrics = {
     mtdActual: sopMtdActual,
-    mtdTarget: customTargetAll,
-    mtdPct: customTargetAll > 0 ? (sopMtdActual / customTargetAll) * 100 : 0,
+    mtdTarget: selectedMonthTargetAll,
+    mtdPct: selectedMonthTargetAll > 0 ? (sopMtdActual / selectedMonthTargetAll) * 100 : 0,
     ytdActual: targets.sopYtdActual,
     ytdTarget: sopYtdTarget,
     ytdPct: sopYtdTarget > 0 ? (targets.sopYtdActual / sopYtdTarget) * 100 : 0,
@@ -1117,8 +1150,8 @@ function computeDummyBusinessPerformanceAnalytics(dataset, selectedMonth = 9, ta
 
   const taMetrics = {
     mtdActual: taMtdActual,
-    mtdTarget: customTargetTA,
-    mtdPct: customTargetTA > 0 ? (taMtdActual / customTargetTA) * 100 : 0,
+    mtdTarget: selectedMonthTargetTA,
+    mtdPct: selectedMonthTargetTA > 0 ? (taMtdActual / selectedMonthTargetTA) * 100 : 0,
     ytdActual: targets.taYtdActual,
     ytdTarget: taYtdTarget,
     ytdPct: taYtdTarget > 0 ? (targets.taYtdActual / taYtdTarget) * 100 : 0,
@@ -1127,8 +1160,8 @@ function computeDummyBusinessPerformanceAnalytics(dataset, selectedMonth = 9, ta
 
   const monthlySopTaSeries = filteredMonthlySeries.map((item) => ({
     ...item,
-    targetSOP: customTargetAll,
-    targetTA: customTargetTA,
+    targetSOP: monthlyTargetsAll[item.month - 1] || customTargetAll,
+    targetTA: monthlyTargetsTA[item.month - 1] || customTargetTA,
     avgSOP,
     avgTA,
   }));
