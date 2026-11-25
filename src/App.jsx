@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   LayoutDashboard,
   TrendingUp,
@@ -17,16 +17,55 @@ import {
   getMonthFullName,
   getMonthShortName,
 } from './data/mockData';
-import { loadDashboardDataset } from './services/sheetsAdapter';
+import { loadDashboardDataset, saveRemoteTargetConfig } from './services/sheetsAdapter';
 import {
   DEFAULT_TARGET_CONFIG,
   DEFAULT_MONTHLY_TARGETS_ALL,
   DEFAULT_MONTHLY_TARGETS_TA,
-  formatIDR,
 } from './utils/analyticsEngine';
 import MarketingDashboard from './pages/MarketingDashboard';
 import BusinessPerformanceDashboard from './pages/BusinessPerformanceDashboard';
 import LeaderboardMitraDashboard from './pages/LeaderboardMitraDashboard';
+
+const TARGET_STORAGE_KEY = 'dashboard_target_config_v1';
+
+function normalizeTargetConfig(raw) {
+  if (!raw || typeof raw !== 'object') return DEFAULT_TARGET_CONFIG;
+  const baseAll = Number(raw.targetBulananAll) || DEFAULT_TARGET_CONFIG.targetBulananAll;
+  const baseTA = Number(raw.targetTA) || DEFAULT_TARGET_CONFIG.targetTA;
+  const leadsPct =
+    Number(raw.targetPersentaseLeads) || DEFAULT_TARGET_CONFIG.targetPersentaseLeads;
+
+  const monthlyTargetsAll =
+    Array.isArray(raw.monthlyTargetsAll) && raw.monthlyTargetsAll.length === 12
+      ? raw.monthlyTargetsAll.map((v) => Number(v) || baseAll)
+      : Array(12).fill(baseAll);
+
+  const monthlyTargetsTA =
+    Array.isArray(raw.monthlyTargetsTA) && raw.monthlyTargetsTA.length === 12
+      ? raw.monthlyTargetsTA.map((v) => Number(v) || baseTA)
+      : Array(12).fill(baseTA);
+
+  return {
+    targetBulananAll: baseAll,
+    targetPersentaseLeads: leadsPct,
+    targetTA: baseTA,
+    monthlyTargetsAll,
+    monthlyTargetsTA,
+  };
+}
+
+function loadInitialTargetConfig() {
+  try {
+    const saved = localStorage.getItem(TARGET_STORAGE_KEY);
+    if (saved) {
+      return normalizeTargetConfig(JSON.parse(saved));
+    }
+  } catch (_) {
+    // Ignore storage read errors
+  }
+  return DEFAULT_TARGET_CONFIG;
+}
 
 function getDefaultMtdRange() {
   const now = new Date();
@@ -53,8 +92,22 @@ export default function App() {
   const [sourceError, setSourceError] = useState('');
   const [hasCustomDateFilter, setHasCustomDateFilter] = useState(false);
 
-  // Global Target Configuration (Defaults: All=320.000.000, Leads=15%, TA=180.000.000)
-  const [targetConfig, setTargetConfig] = useState(DEFAULT_TARGET_CONFIG);
+  // Global Target Configuration (Persisted in localStorage & synced via Google Sheets for all users)
+  const [targetConfig, setTargetConfig] = useState(() => loadInitialTargetConfig());
+  const lastTargetSaveRef = useRef(0);
+
+  const handleSaveTargetConfig = (nextTargetConfig) => {
+    lastTargetSaveRef.current = Date.now();
+    setTargetConfig(nextTargetConfig);
+    try {
+      localStorage.setItem(TARGET_STORAGE_KEY, JSON.stringify(nextTargetConfig));
+    } catch (_) {
+      // Ignore storage errors
+    }
+    saveRemoteTargetConfig(nextTargetConfig).catch((err) => {
+      console.warn('Gagal menyinkronkan target ke Google Sheets:', err.message);
+    });
+  };
 
   // Page 1: Marketing Dashboard Filters (Default: Current Month MTD up to today / latest sheet date)
   const [marketingFilters, setMarketingFilters] = useState({
@@ -89,6 +142,16 @@ export default function App() {
         });
         if (!mounted) return;
         setDataset(realDataset);
+
+        if (realDataset.savedTargetConfig && Date.now() - lastTargetSaveRef.current > 8000) {
+          const normalizedRemote = normalizeTargetConfig(realDataset.savedTargetConfig);
+          setTargetConfig(normalizedRemote);
+          try {
+            localStorage.setItem(TARGET_STORAGE_KEY, JSON.stringify(normalizedRemote));
+          } catch (_) {
+            // Ignore localStorage quota error
+          }
+        }
 
         // If user hasn't manually overridden the date range, keep endDate synced with latest current-month data or today
         if (!hasCustomDateFilter && realDataset.mode === 'google_sheets') {
@@ -371,7 +434,7 @@ export default function App() {
           leaderboardFilters={leaderboardFilters}
           setLeaderboardFilters={setLeaderboardFilters}
           targetConfig={targetConfig}
-          setTargetConfig={setTargetConfig}
+          setTargetConfig={handleSaveTargetConfig}
           availableServiceTypes={availableServiceTypes}
           availableSalesNames={availableSalesNames}
           availableStatuses={availableStatuses}
@@ -462,16 +525,18 @@ function FilterAndTargetModal({
       ? draftTarget.monthlyTargetsTA.map((v) => Number(v) || baseTA)
       : Array(12).fill(baseTA);
 
-    setMarketingFilters(draftMkt);
-    setBusinessMonth(Number(draftBizMonth));
-    setLeaderboardFilters(draftLb);
-    setTargetConfig({
+    const nextTargetConfig = {
       targetBulananAll: baseAll,
       targetPersentaseLeads: Number(draftTarget.targetPersentaseLeads) || 15,
       targetTA: baseTA,
       monthlyTargetsAll: normalizedMonthlyAll,
       monthlyTargetsTA: normalizedMonthlyTA,
-    });
+    };
+
+    setMarketingFilters(draftMkt);
+    setBusinessMonth(Number(draftBizMonth));
+    setLeaderboardFilters(draftLb);
+    setTargetConfig(nextTargetConfig);
     onClose();
   };
 
@@ -507,11 +572,6 @@ function FilterAndTargetModal({
     monthlyTargetSegment === 'BMI'
       ? draftTarget.monthlyTargetsAll || DEFAULT_MONTHLY_TARGETS_ALL
       : draftTarget.monthlyTargetsTA || DEFAULT_MONTHLY_TARGETS_TA;
-
-  const totalAnnualTargetDraft = activeMonthlyList.reduce(
-    (sum, val) => sum + (Number(val) || 0),
-    0
-  );
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -758,13 +818,7 @@ function FilterAndTargetModal({
           >
             <div>
               <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#1E293B' }}>
-                Target Tahunan per 12 Bulan (YTD vs Target Tahunan)
-              </div>
-              <div style={{ fontSize: '0.71rem', color: '#64748B' }}>
-                Total Target Tahunan ({monthlyTargetSegment}):{' '}
-                <strong style={{ color: '#2E353B' }}>
-                  {formatIDR(totalAnnualTargetDraft)} ({formatIDR(totalAnnualTargetDraft, true)})
-                </strong>
+                Set Target
               </div>
             </div>
 

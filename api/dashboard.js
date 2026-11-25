@@ -65,7 +65,7 @@ function createServiceAccountJWT(sa) {
   const claim = Buffer.from(
     JSON.stringify({
       iss: sa.client_email,
-      scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
+      scope: 'https://www.googleapis.com/auth/spreadsheets',
       aud: sa.token_uri || 'https://oauth2.googleapis.com/token',
       exp: now + 3600,
       iat: now,
@@ -81,7 +81,8 @@ function createServiceAccountJWT(sa) {
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader(
     'Cache-Control',
     'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
@@ -98,6 +99,69 @@ export default async function handler(req, res) {
         mode: 'error',
         status: 'error',
         message: 'Environment Variable SPREADSHEET_ID belum diset di Vercel Project Settings.',
+      });
+    }
+
+    const financeSheet =
+      firstNonEmptyEnv('FINANCE_SHEET', 'FINANCE_SHEET_NAME') || 'finance';
+    const closingSheet =
+      firstNonEmptyEnv('WORKSHEET_NAME', 'CLOSING_SHEET_NAME') || 'closing';
+    const leadsSheet =
+      firstNonEmptyEnv('LEADS_RAW_WORKSHEET', 'LEADS_SHEET_NAME') || 'leads';
+
+    // Handle POST /api/dashboard to persist shared targetConfig in Google Sheets (finance!Z1)
+    if (req.method === 'POST') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
+      const newTargetConfig = body.targetConfig;
+      if (!newTargetConfig || typeof newTargetConfig !== 'object') {
+        return res.status(400).json({
+          status: 'error',
+          message: 'Payload targetConfig tidak valid.',
+        });
+      }
+
+      const sa = parseServiceAccount();
+      const jwt = createServiceAccountJWT(sa);
+      const tokenRes = await fetch(sa.token_uri || 'https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
+      });
+
+      if (!tokenRes.ok) {
+        const errText = await tokenRes.text();
+        throw new Error(`Gagal autentikasi OAuth2 Google (${tokenRes.status}): ${errText}`);
+      }
+
+      const { access_token: token } = await tokenRes.json();
+      const targetCellRange = `${financeSheet}!Z1`;
+      const putUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+        targetCellRange
+      )}?valueInputOption=RAW`;
+
+      const writeRes = await fetch(putUrl, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          values: [[JSON.stringify(newTargetConfig)]],
+        }),
+      });
+
+      if (!writeRes.ok) {
+        const errText = await writeRes.text();
+        throw new Error(`Gagal menyimpan konfigurasi target ke Google Sheets (${writeRes.status}): ${errText}`);
+      }
+
+      if (cachedPayload) {
+        cachedPayload.savedTargetConfig = newTargetConfig;
+      }
+
+      return res.status(200).json({
+        status: 'ok',
+        savedTargetConfig: newTargetConfig,
       });
     }
 
@@ -124,17 +188,11 @@ export default async function handler(req, res) {
 
     const { access_token: token } = await tokenRes.json();
 
-    const financeSheet =
-      firstNonEmptyEnv('FINANCE_SHEET', 'FINANCE_SHEET_NAME') || 'finance';
-    const closingSheet =
-      firstNonEmptyEnv('WORKSHEET_NAME', 'CLOSING_SHEET_NAME') || 'closing';
-    const leadsSheet =
-      firstNonEmptyEnv('LEADS_RAW_WORKSHEET', 'LEADS_SHEET_NAME') || 'leads';
-
     const ranges = [
       `${financeSheet}!A1:P50000`,
       `${closingSheet}!A1:T50000`,
       `${leadsSheet}!A1:M50000`,
+      `${financeSheet}!Z1:Z1`,
     ]
       .map((r) => `ranges=${encodeURIComponent(r)}`)
       .join('&');
@@ -152,10 +210,21 @@ export default async function handler(req, res) {
     const batchJson = await sheetRes.json();
     const valueRanges = batchJson.valueRanges || [];
 
+    let savedTargetConfig = null;
+    const rawTargetJson = valueRanges[3]?.values?.[0]?.[0];
+    if (rawTargetJson && typeof rawTargetJson === 'string') {
+      try {
+        savedTargetConfig = JSON.parse(rawTargetJson);
+      } catch (_) {
+        savedTargetConfig = null;
+      }
+    }
+
     cachedPayload = {
       mode: 'google_sheets',
       status: 'ok',
       lastUpdated: new Date().toISOString(),
+      savedTargetConfig,
       sheets: {
         finance: valueRanges[0]?.values || [],
         closing: valueRanges[1]?.values || [],

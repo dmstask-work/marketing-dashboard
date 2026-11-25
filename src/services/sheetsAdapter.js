@@ -140,7 +140,7 @@ export async function loadDashboardDataset(config = {}) {
   }
 
   if (json && json.mode === 'google_sheets' && json.sheets) {
-    return transformRealSheetsToDataset(json.sheets, json.lastUpdated);
+    return transformRealSheetsToDataset(json.sheets, json.lastUpdated, json.savedTargetConfig);
   }
 
   if (json && json.mode === 'error') {
@@ -150,7 +150,22 @@ export async function loadDashboardDataset(config = {}) {
   return generateDummyDataset();
 }
 
-function transformRealSheetsToDataset(sheets, lastUpdated) {
+export async function saveRemoteTargetConfig(targetConfig) {
+  const res = await fetch('/api/dashboard', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ targetConfig }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Gagal menyimpan target ke server (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
+function transformRealSheetsToDataset(sheets, lastUpdated, savedTargetConfig = null) {
   const fallback = generateDummyDataset();
 
   const rawFinance = sheets.finance || [];
@@ -302,6 +317,7 @@ function transformRealSheetsToDataset(sheets, lastUpdated) {
   return {
     mode: 'google_sheets',
     lastUpdated: lastUpdated || new Date().toISOString(),
+    savedTargetConfig: savedTargetConfig || null,
     financeRows,
     closingRows,
     leadsRows,

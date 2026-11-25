@@ -33,7 +33,7 @@ function createServiceAccountJWT(sa) {
   const claim = Buffer.from(
     JSON.stringify({
       iss: sa.client_email,
-      scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
+      scope: 'https://www.googleapis.com/auth/spreadsheets',
       aud: sa.token_uri || 'https://oauth2.googleapis.com/token',
       exp: now + 3600,
       iat: now,
@@ -45,12 +45,7 @@ function createServiceAccountJWT(sa) {
   return `${header}.${claim}.${signature}`;
 }
 
-async function fetchGoogleSheetsData(forceRefresh = false) {
-  const now = Date.now();
-  if (!forceRefresh && cachedResponse && now - lastFetchedTime < 3000) {
-    return cachedResponse;
-  }
-
+function getEnvAndTokenConfig() {
   const envVars = loadDotEnv();
   const spreadsheetId = process.env.SPREADSHEET_ID || envVars.SPREADSHEET_ID;
   const closingSheet = process.env.WORKSHEET_NAME || envVars.WORKSHEET_NAME || 'closing';
@@ -71,6 +66,59 @@ async function fetchGoogleSheetsData(forceRefresh = false) {
     sa = JSON.parse(fs.readFileSync(fullSaPath, 'utf8'));
   }
 
+  return { spreadsheetId, closingSheet, leadsSheet, financeSheet, sa };
+}
+
+async function saveGoogleSheetsTargetConfig(newTargetConfig) {
+  const { spreadsheetId, financeSheet, sa } = getEnvAndTokenConfig();
+  const jwt = createServiceAccountJWT(sa);
+  const tokenRes = await fetch(sa.token_uri || 'https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
+  });
+
+  if (!tokenRes.ok) {
+    const errText = await tokenRes.text();
+    throw new Error(`Gagal autentikasi Service Account: ${errText}`);
+  }
+
+  const { access_token: token } = await tokenRes.json();
+  const targetCellRange = `${financeSheet}!Z1`;
+  const putUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+    targetCellRange
+  )}?valueInputOption=RAW`;
+
+  const writeRes = await fetch(putUrl, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      values: [[JSON.stringify(newTargetConfig)]],
+    }),
+  });
+
+  if (!writeRes.ok) {
+    const errText = await writeRes.text();
+    throw new Error(`Gagal menyimpan target ke Google Sheets: ${errText}`);
+  }
+
+  if (cachedResponse) {
+    cachedResponse.savedTargetConfig = newTargetConfig;
+  }
+  return newTargetConfig;
+}
+
+async function fetchGoogleSheetsData(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && cachedResponse && now - lastFetchedTime < 3000) {
+    return cachedResponse;
+  }
+
+  const { spreadsheetId, closingSheet, leadsSheet, financeSheet, sa } = getEnvAndTokenConfig();
+
   const jwt = createServiceAccountJWT(sa);
   const tokenRes = await fetch(sa.token_uri || 'https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -85,11 +133,12 @@ async function fetchGoogleSheetsData(forceRefresh = false) {
 
   const { access_token: token } = await tokenRes.json();
 
-  // BatchGet all 3 sheets in a single Google Sheets API request for maximum speed
+  // BatchGet all 3 sheets + shared targetConfig cell (finance!Z1) in a single Google Sheets API request
   const ranges = [
     `${financeSheet}!A1:P50000`,
     `${closingSheet}!A1:T50000`,
     `${leadsSheet}!A1:M50000`,
+    `${financeSheet}!Z1:Z1`,
   ]
     .map((r) => `ranges=${encodeURIComponent(r)}`)
     .join('&');
@@ -107,10 +156,21 @@ async function fetchGoogleSheetsData(forceRefresh = false) {
   const batchJson = await sheetRes.json();
   const valueRanges = batchJson.valueRanges || [];
 
+  let savedTargetConfig = null;
+  const rawTargetJson = valueRanges[3]?.values?.[0]?.[0];
+  if (rawTargetJson && typeof rawTargetJson === 'string') {
+    try {
+      savedTargetConfig = JSON.parse(rawTargetJson);
+    } catch (_) {
+      savedTargetConfig = null;
+    }
+  }
+
   cachedResponse = {
     mode: 'google_sheets',
     status: 'ok',
     lastUpdated: new Date().toISOString(),
+    savedTargetConfig,
     sheets: {
       finance: valueRanges[0]?.values || [],
       closing: valueRanges[1]?.values || [],
@@ -128,11 +188,27 @@ function googleSheetsApiPlugin() {
       server.middlewares.use('/api/dashboard', async (req, res) => {
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
         res.setHeader(
           'Cache-Control',
           'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
         );
+        if (req.method === 'OPTIONS') {
+          res.statusCode = 200;
+          return res.end();
+        }
         try {
+          if (req.method === 'POST') {
+            let rawBody = '';
+            for await (const chunk of req) {
+              rawBody += chunk;
+            }
+            const parsed = JSON.parse(rawBody || '{}');
+            const saved = await saveGoogleSheetsTargetConfig(parsed.targetConfig);
+            res.statusCode = 200;
+            return res.end(JSON.stringify({ status: 'ok', savedTargetConfig: saved }));
+          }
           const urlObj = new URL(req.url, 'http://localhost');
           const force = urlObj.searchParams.get('refresh') === 'true';
           const payload = await fetchGoogleSheetsData(force);
